@@ -1,11 +1,13 @@
 // based on: https://eprint.iacr.org/2024/585.pdf
+use std::marker::PhantomData;
 
 const N: usize = 4;   // in real 256
 const IN: u32 = 5761;
 const Q: u32 = 7681;    // in real 3329
+
+// first root
 const W: u32 = 3383;
 const IW: u32 = 4298; // inverse of W mod Q
-
 const NTT: [[u32; N]; N] = [[1, 1   , 1   , 1   ],
                             [1, 3383, 7680, 4298],
                             [1, 7680, 1   , 7680],
@@ -16,37 +18,49 @@ const INTT: [[u32; N]; N] = [[1, 1   , 1   , 1   ],
                              [1, 7680, 1   , 7680],
                              [1, 3383, 7680, 4298]]; // well its bigger in reality 256 long.
 
+//second root
+const W2: u32 = 1925;
+
+const NWNTT: [[u32; N]; N] = [[1, 1925, 3383, 6468],
+                              [1, 6468, 4298, 1925],
+                              [1, 5756, 3383, 1213],
+                              [1, 1213, 4298, 5756]]; // well its bigger in reality 256 long.
+
+
 trait Polynomial {
     fn new(coeffs: [u32; N]) -> Self;
+    fn get_coeffs(&self) -> &[u32; N];
     fn add(&mut self, other: &Self);
     fn scalar_mul(&mut self, scalar: u32);
     fn el_wise_mul(&self, other: &Self) -> Self;
 }
 
-
+#[derive(Clone, Debug)]
+struct Poly_norm;
+#[derive(Clone, Debug)]
+struct Poly_ntt;
 
 #[derive(Clone, Debug)]
-struct Poly {
+struct Poly<Domain> {
     coeffs: [u32; N],
+    _domain: PhantomData<Domain>,
 }
 
-#[derive(Clone, Debug)]
-struct Poly_normal {
-    poly: Poly,
-}
+type Poly_normal = Poly<Poly_norm>;
 
-#[derive(Clone, Debug)]
-struct Poly_NTT {
-    poly: Poly,
-}
+type Poly_NTT = Poly<Poly_ntt>;
 
 struct Matrix {
     data: [[u32; N]; N],
 }
 
-impl Polynomial for Poly {
+impl <T:Clone> Polynomial for Poly<T> {
     fn new(coeffs: [u32; N]) -> Self {
-        Self { coeffs }
+        Self { coeffs, _domain: PhantomData }
+    }
+
+    fn get_coeffs(&self) -> &[u32; N] {
+        &self.coeffs
     }
 
     fn add(&mut self, other: &Self) {
@@ -71,30 +85,8 @@ impl Polynomial for Poly {
 }
 
 
-
 impl Poly_normal {
-    fn new(coeffs: [u32; N]) -> Self {
-        Self { poly: Poly::new(coeffs) }
-    }
-
-    fn get_coeffs(&self) -> &[u32; N] {
-        &self.poly.coeffs
-    }
-
-    fn add(&mut self, other: &Poly_normal){
-        self.poly.add(&other.poly);
-    }
-    
-    fn scalar_mul(&mut self, scalar: u32){
-        self.poly.scalar_mul(scalar);
-    }
-
-    fn el_wise_mul(&self, other: &Poly_normal) -> Poly_normal {
-        let poly = self.poly.el_wise_mul(&other.poly);
-        Poly_normal { poly }
-    }
-
-    fn convolution(&self, other: &Poly_normal) -> Poly_normal {
+        fn convolution(&self, other: &Poly_normal) -> Poly_normal {
         let a = self.to_ntt();
         let b = other.to_ntt();
         let c = a.el_wise_mul(&b);
@@ -107,33 +99,13 @@ impl Poly_normal {
 }
 
 impl Poly_NTT {
-    fn new(coeffs: [u32; N]) -> Self {
-        Self { poly: Poly::new(coeffs) }
-    }
-
-    fn get_coeffs(&self) -> &[u32; N] {
-        &self.poly.coeffs
-    }
-
-    fn add(&mut self, other: &Poly_normal){
-        self.poly.add(&other.poly);
-    }
-    
-    fn scalar_mul(&mut self, scalar: u32){
-        self.poly.scalar_mul(scalar);
-    }
-
-    fn el_wise_mul(&self, other: &Poly_NTT) -> Poly_NTT {
-        let poly = self.poly.el_wise_mul(&other.poly);
-        Poly_NTT { poly }
-    }
-
     fn to_normal(&self) -> Poly_normal {
         let mut poly = Poly_normal::new(Matrix::new(INTT).multiply_poly(self.get_coeffs()));
         poly.scalar_mul(IN);
         poly
     }
 }
+
 
 //[rows][columns]
 impl Matrix {
@@ -164,6 +136,7 @@ pub fn ntt_matrix() -> Matrix {
     Matrix::new(data)
 }
 
+// just for checking
 pub fn intt_matrix() -> Matrix {
     let mut data = [[0u32; N]; N];
     for i in 0..N {
@@ -174,6 +147,17 @@ pub fn intt_matrix() -> Matrix {
     Matrix::new(data)  
 }
 
+// just for checking
+// in docs the exp is (2*i*j + i), but example is (2*i*j + j)
+pub fn nwtt_matrix() -> Matrix {
+    let mut data = [[0u32; N]; N];
+    for i in 0..N {
+        for j in 0..N {
+            data[i][j] = mod_pow(W2, ((2*i * j) + j) as u32, Q);
+        }
+    }
+    Matrix::new(data)  
+}
 
 pub fn mod_pow(base: u32, exp: u32, modulus: u32) -> u32 {
     let mut result = 1;
@@ -201,7 +185,7 @@ mod tests{
         let mut poly = Poly_normal::new([1, 2, 3, 4]);
         let poly2 = Poly_normal::new([4, 3, 2, 1]);
         poly.add(&poly2);
-        assert_eq!(poly.poly.coeffs, [5, 5, 5, 5]);
+        assert_eq!(poly.get_coeffs(), &[5, 5, 5, 5]);
     }
 
     #[test]
@@ -274,4 +258,9 @@ mod tests{
     }
 
 
+    #[test]
+    fn test_generation_nwntt_matrix(){
+        let matrix = nwtt_matrix();
+        assert_eq!(matrix.data, NWNTT);
+    }
 }
