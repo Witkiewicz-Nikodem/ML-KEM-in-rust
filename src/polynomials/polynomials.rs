@@ -20,12 +20,16 @@ const INTT: [[u32; N]; N] = [[1, 1   , 1   , 1   ],
 
 //second root
 const W2: u32 = 1925;
-
+const IW2: u32 = 1213;
 const NWNTT: [[u32; N]; N] = [[1, 1925, 3383, 6468],
                               [1, 6468, 4298, 1925],
                               [1, 5756, 3383, 1213],
                               [1, 1213, 4298, 5756]]; // well its bigger in reality 256 long.
 
+const INWNTT: [[u32; N]; N] = [[1   , 1   , 1   , 1   ],
+                               [1213, 5756, 6468, 1925],
+                               [4298, 3383, 4298, 3383],
+                               [5756, 1213, 1925, 6468]]; // well its bigger in reality 256 long.
 
 trait Polynomial {
     fn new(coeffs: [u32; N]) -> Self;
@@ -37,8 +41,15 @@ trait Polynomial {
 
 #[derive(Clone, Debug)]
 struct Poly_norm;
+
 #[derive(Clone, Debug)]
 struct Poly_ntt;
+
+#[derive(Clone, Debug)]
+struct Poly_norm_2nthroot;
+
+#[derive(Clone, Debug)]
+struct Poly_ntt_2nthroot;
 
 #[derive(Clone, Debug)]
 struct Poly<Domain> {
@@ -47,9 +58,10 @@ struct Poly<Domain> {
 }
 
 type Poly_normal = Poly<Poly_norm>;
-
 type Poly_NTT = Poly<Poly_ntt>;
 
+type Poly_normal_2nthroot = Poly<Poly_norm_2nthroot>;
+type Poly_NTT_2nthroot = Poly<Poly_ntt_2nthroot>;
 struct Matrix {
     data: [[u32; N]; N],
 }
@@ -106,6 +118,28 @@ impl Poly_NTT {
     }
 }
 
+impl Poly_normal_2nthroot {
+    fn convolution(&self, other: &Poly_normal_2nthroot) -> Poly_normal_2nthroot {
+        let a = self.to_ntt();
+        let b = other.to_ntt();
+        let c = a.el_wise_mul(&b);
+        c.to_normal()
+    }
+
+    fn to_ntt(&self) -> Poly_NTT_2nthroot {
+        Poly_NTT_2nthroot::new(Matrix::new(NWNTT).multiply_poly(self.get_coeffs()))
+    }
+}
+
+impl Poly_NTT_2nthroot {
+    fn to_normal(&self) -> Poly_normal_2nthroot {
+        let mut poly = Poly_normal_2nthroot::new(Matrix::new(INWNTT).multiply_poly(self.get_coeffs()));
+        poly.scalar_mul(IN);
+        poly
+    }
+}
+
+
 
 //[rows][columns]
 impl Matrix {
@@ -157,6 +191,16 @@ pub fn nwtt_matrix() -> Matrix {
         }
     }
     Matrix::new(data)  
+}
+// on the other hand we here have this (2*i*j + i)
+pub fn inwtt_matrix() -> Matrix {
+    let mut data = [[0u32; N]; N];
+    for i in 0..N{
+        for j in 0..N {
+            data[i][j] = mod_pow(IW2, (2*i*j + i) as u32, Q);
+        }
+    }
+    Matrix::new(data)
 }
 
 pub fn mod_pow(base: u32, exp: u32, modulus: u32) -> u32 {
@@ -258,9 +302,38 @@ mod tests{
     }
 
 
+    // tests for the second root of unity
     #[test]
     fn test_generation_nwntt_matrix(){
         let matrix = nwtt_matrix();
         assert_eq!(matrix.data, NWNTT);
+    }
+
+    #[test]
+    fn test_inwntt_matrix_multiply_poly(){
+        let matrix = inwtt_matrix();
+        assert_eq!(matrix.data, INWNTT);
+    }
+
+    #[test]
+    fn test_poly_normal_2nthroot_to_ntt(){
+        let poly = Poly_normal_2nthroot::new([1, 2, 3, 4]);
+        let poly_ntt = poly.to_ntt();
+        assert_eq!(poly_ntt.get_coeffs(), &[1467, 2807, 3471, 7621]);
+    }
+
+    #[test]
+    fn test_nwntt_matrix_multiply_poly() {
+        let poly = Poly_NTT_2nthroot::new([1467, 2807, 3471, 7621]);
+        let result = poly.to_normal();
+        assert_eq!(result.get_coeffs(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_poly_transforma_reduction_2nthroot() {
+        let poly = Poly_normal_2nthroot::new([1, 2, 3, 4]);
+        let poly_ntt = poly.to_ntt();
+        let poly_normal = poly_ntt.to_normal();
+        assert_eq!(poly_normal.get_coeffs(), &[1, 2, 3, 4]);
     }
 }
